@@ -1,0 +1,6 @@
+{
+  "name": "Kelvin Water Dropper 3D Physics Simulator",
+  "description": "Interactive 3D simulation of Lord Kelvin's electrostatic generator with real-time fluid dynamics, induction charging, environmental factors, and comparative voltage graphing.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
