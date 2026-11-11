@@ -9,6 +9,7 @@ import {
   LineChart,
   Play,
   RotateCcw,
+  Layers,
 } from 'lucide-react';
 import { SimulationState, SimulationParams } from '../types/simulation';
 
@@ -23,6 +24,8 @@ interface TelemetryBarProps {
   showGraphOverlay: boolean;
   setShowGraphOverlay: (show: boolean) => void;
   onTriggerSpark?: () => void;
+  activeModule?: 'module1' | 'module2';
+  setActiveModule?: (mod: 'module1' | 'module2') => void;
 }
 
 export const TelemetryBar: React.FC<TelemetryBarProps> = ({
@@ -36,6 +39,8 @@ export const TelemetryBar: React.FC<TelemetryBarProps> = ({
   showGraphOverlay,
   setShowGraphOverlay,
   onTriggerSpark,
+  activeModule = 'module1',
+  setActiveModule,
 }) => {
   const vDiffKv = (Math.abs(state.potentialDifference) / 1000).toFixed(1);
   const vaKv = (state.voltageA / 1000).toFixed(1);
@@ -46,19 +51,55 @@ export const TelemetryBar: React.FC<TelemetryBarProps> = ({
 
   return (
     <header className="fixed top-0 left-0 right-0 z-30 flex items-center justify-between gap-4 px-4 py-2 bg-slate-950/95 border-b border-slate-800 shadow-lg select-none backdrop-blur-md">
-      {/* Zone 1: Brand & Wordmark */}
-      <div className="flex items-center gap-2.5 shrink-0">
-        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-500/10 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shadow-sm">
-          <Droplets size={17} />
+      {/* Zone 1: Brand & Wordmark + Module Switcher */}
+      <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-500/10 border border-cyan-500/40 flex items-center justify-center text-cyan-400 shadow-sm">
+            <Droplets size={17} />
+          </div>
+          <div className="flex flex-col">
+            <span className="text-xs font-bold tracking-tight text-white whitespace-nowrap">
+              Kelvin Water Dropper
+            </span>
+            <span className="text-[10px] font-mono text-cyan-400 font-medium">
+              CP & Honors Chemistry
+            </span>
+          </div>
         </div>
-        <div className="flex flex-col">
-          <span className="text-xs font-bold tracking-tight text-white whitespace-nowrap">
-            Kelvin Water Dropper
-          </span>
-          <span className="text-[10px] font-mono text-cyan-400 font-medium">
-            CP & Honors Chemistry
-          </span>
-        </div>
+
+        {/* Module Switcher Tabs: Part 1 vs Part 2 */}
+        {setActiveModule && (
+          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-xl p-0.5 ml-1">
+            <button
+              type="button"
+              onClick={() => setActiveModule('module1')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                activeModule === 'module1'
+                  ? 'bg-cyan-500/25 text-cyan-200 border border-cyan-400/50 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Classic Kelvin Water Dropper Generator (Part 1)"
+            >
+              <Droplets size={13} className={activeModule === 'module1' ? 'text-cyan-400' : 'text-slate-500'} />
+              <span className="hidden sm:inline">Part 1: Generator</span>
+              <span className="sm:hidden">Part 1</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveModule('module2')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                activeModule === 'module2'
+                  ? 'bg-purple-500/25 text-purple-200 border border-purple-400/50 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+              title="Material Interaction Lab: Drag Metal, Plastic, Wood, Rubber into 3D Scene (Part 2)"
+            >
+              <Layers size={13} className={activeModule === 'module2' ? 'text-purple-400' : 'text-slate-500'} />
+              <span className="hidden sm:inline">Part 2: Materials</span>
+              <span className="sm:hidden">Part 2</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Zone 2: Telemetry Readouts & Compact Spark Meter */}

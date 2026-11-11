@@ -107,7 +107,9 @@ export const ElectronFlowWires: React.FC<ElectronFlowWiresProps> = ({
 
     if (!params.isPaused) {
       const vDiff = Math.abs(state.potentialDifference);
-      const activityScale = Math.min(2.5, Math.max(0.5, (vDiff / 7000) * 1.2));
+      const avgEff = ((state.collectionEfficiencyA ?? 1) + (state.collectionEfficiencyB ?? 1)) / 2;
+      // Smooth scaling: speed is 0 when voltage is 0 (<50V) OR when drops miss the cans (avgEff < 0.1)
+      const activityScale = vDiff < 50 || avgEff < 0.1 ? 0 : Math.min(2.8, Math.pow(vDiff / 6000, 0.85) * avgEff);
       const speed = delta * params.simSpeed * params.electronFlowSpeed * activityScale * 0.35;
       animationProgressRef.current = (animationProgressRef.current + speed) % 1.0;
     }
@@ -122,6 +124,12 @@ export const ElectronFlowWires: React.FC<ElectronFlowWiresProps> = ({
     const userScale = params.chargeSignSize ?? 1.2;
     const baseSize = 0.026 * userScale;
     const pulse = 1.0 + Math.sin(clock.getElapsedTime() * 4) * 0.1;
+
+    // Dynamic polarity colors based on actual state voltages
+    const isCanAPlus = state.voltageA >= 0;
+    const isCanBPlus = state.voltageB >= 0;
+    const colorCanA = isCanAPlus ? COLOR_PLUS : COLOR_MINUS;
+    const colorCanB = isCanBPlus ? COLOR_PLUS : COLOR_MINUS;
 
     const addChargeSymbol = (
       x: number,
@@ -155,44 +163,49 @@ export const ElectronFlowWires: React.FC<ElectronFlowWiresProps> = ({
     };
 
     // 1. WIRE B -> A (Can B UP to Ring A)
+    const dirBtoA = (isChemistryMode ? 1 : -1) * (state.voltageB >= state.voltageA ? 1 : -1);
     let pIdx = 0;
     for (let i = 0; i < PARTICLES_PER_WIRE; i++) {
-      let t = (phaseOffsets[pIdx++] + tGlobal) % 1.0;
+      let t = (phaseOffsets[pIdx++] + tGlobal * dirBtoA) % 1.0;
       if (t < 0) t += 1.0;
       curveBtoA.getPoint(t, _pos);
-      // Offset slightly in front (+z) and above (+y) so signs ride alongside wire without clipping tube
-      addChargeSymbol(_pos.x, _pos.y + 0.025, _pos.z + 0.04, false, COLOR_MINUS);
+      addChargeSymbol(_pos.x, _pos.y + 0.025, _pos.z + 0.04, isCanBPlus, colorCanB);
     }
 
     // 2. WIRE A -> B (Can A UP to Ring B)
-    const dirAtoB = isChemistryMode ? 1 : -1;
+    const dirAtoB = (isChemistryMode ? 1 : -1) * (state.voltageA >= state.voltageB ? 1 : -1);
     for (let i = 0; i < PARTICLES_PER_WIRE; i++) {
       let t = (phaseOffsets[pIdx++] + tGlobal * dirAtoB) % 1.0;
       if (t < 0) t += 1.0;
       curveAtoB.getPoint(t, _pos);
-
-      if (isChemistryMode) {
-        addChargeSymbol(_pos.x, _pos.y + 0.025, _pos.z + 0.04, true, COLOR_PLUS);
-      } else {
-        addChargeSymbol(_pos.x, _pos.y + 0.025, _pos.z + 0.04, false, COLOR_MINUS);
-      }
+      addChargeSymbol(_pos.x, _pos.y + 0.025, _pos.z + 0.04, isCanAPlus, colorCanA);
     }
 
     // 3. TOP RESERVOIR MANIFOLD SEPARATION (Float cleanly above top water pipe)
-    const reservoirY = 2.22; // Offset above the brass pipe (y = 2.13)
-    const reservoirZ = 0.04; // Offset in front
+    const reservoirY = 2.22; // Offset above the brass pipe
+    const reservoirZ = 0.04;
     const halfSep = Math.abs(canRightPos[0]);
+    // Ring A is energized by Can B (voltageB); Ring B is energized by Can A (voltageA)
+    const isRingAPositive = state.voltageB >= 0;
+    const isRingBPositive = state.voltageA >= 0;
+
     for (let i = 0; i < PARTICLES_RESERVOIR; i++) {
       const isLeftBranch = i < PARTICLES_RESERVOIR / 2;
       let t = (phaseOffsets[pIdx++] + tGlobal * 0.7) % 1.0;
       if (t < 0) t += 1.0;
 
       if (isLeftBranch) {
+        // Left branch pulled by Ring A: attracts opposite ions
         const x = -t * halfSep;
-        addChargeSymbol(x, reservoirY, reservoirZ, true, COLOR_PLUS);
+        const leftPlus = !isRingAPositive; // If Ring A is negative, pulls (+) ions
+        const leftColor = leftPlus ? COLOR_PLUS : COLOR_MINUS;
+        addChargeSymbol(x, reservoirY, reservoirZ, leftPlus, leftColor);
       } else {
+        // Right branch pulled by Ring B: attracts opposite ions
         const x = t * halfSep;
-        addChargeSymbol(x, reservoirY, reservoirZ, false, COLOR_MINUS);
+        const rightPlus = !isRingBPositive;
+        const rightColor = rightPlus ? COLOR_PLUS : COLOR_MINUS;
+        addChargeSymbol(x, reservoirY, reservoirZ, rightPlus, rightColor);
       }
     }
 
@@ -200,13 +213,13 @@ export const ElectronFlowWires: React.FC<ElectronFlowWiresProps> = ({
     for (let i = 0; i < PARTICLES_PER_LEAD; i++) {
       let t = (phaseOffsets[pIdx++] + tGlobal * 0.9) % 1.0;
       curveLeadLeft.getPoint(t, _pos);
-      addChargeSymbol(_pos.x, _pos.y + 0.025, _pos.z + 0.03, true, COLOR_PLUS);
+      addChargeSymbol(_pos.x, _pos.y + 0.025, _pos.z + 0.03, isCanAPlus, colorCanA);
     }
 
     for (let i = 0; i < PARTICLES_PER_LEAD; i++) {
       let t = (phaseOffsets[pIdx++] + tGlobal * 0.9) % 1.0;
       curveLeadRight.getPoint(t, _pos);
-      addChargeSymbol(_pos.x, _pos.y + 0.025, _pos.z + 0.03, false, COLOR_MINUS);
+      addChargeSymbol(_pos.x, _pos.y + 0.025, _pos.z + 0.03, isCanBPlus, colorCanB);
     }
 
     meshHRef.current.count = hIdx;

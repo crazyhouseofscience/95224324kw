@@ -2,6 +2,8 @@ import React, { useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { SimulationParams, SimulationState, DropletData } from '../types/simulation';
+import { ProbeState } from '../types/probingLab';
+import { calculateProbeForceOnDroplet } from '../services/probingPhysics';
 import { audioEngine } from '../services/AudioEngine';
 import { getWindVector } from '../services/physicsEngine';
 
@@ -14,6 +16,7 @@ interface DropletParticlesProps {
   ringRightPos: [number, number, number];
   canLeftPos: [number, number, number];
   canRightPos: [number, number, number];
+  probe?: ProbeState;
 }
 
 const MAX_DROPLETS = 600;
@@ -29,6 +32,7 @@ export const DropletParticles: React.FC<DropletParticlesProps> = ({
   ringRightPos,
   canLeftPos,
   canRightPos,
+  probe,
 }) => {
   const meshRef = useRef<THREE.InstancedMesh>(null);
   const dropletsRef = useRef<DropletData[]>([]);
@@ -239,6 +243,14 @@ export const DropletParticles: React.FC<DropletParticlesProps> = ({
             continue;
           }
         }
+      }
+
+      // 4. MODULE 2: ELECTROSTATIC PROBE FORCE DEFLECTION
+      if (probe && probe.enabled) {
+        const [pfx, pfy, pfz] = calculateProbeForceOnDroplet(probe, d.x, d.y, d.z, d.charge);
+        d.vx += pfx * dt;
+        d.vy += pfy * dt;
+        d.vz += pfz * dt;
       }
 
       // Update position

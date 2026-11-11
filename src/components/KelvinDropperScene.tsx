@@ -3,6 +3,7 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls, ContactShadows } from '@react-three/drei';
 import * as THREE from 'three';
 import { SimulationParams, SimulationState } from '../types/simulation';
+import { ProbeState } from '../types/probingLab';
 import { ApparatusModel } from './ApparatusModel';
 import { DropletParticles } from './DropletParticles';
 import { ElectricFieldLines } from './ElectricFieldLines';
@@ -11,17 +12,22 @@ import { WindIndicator } from './WindIndicator';
 import { ElectronFlowWires } from './ElectronFlowWires';
 import { ChargeBuildupSigns } from './ChargeBuildupSigns';
 import { SparkGapChargeBuildup } from './SparkGapChargeBuildup';
+import { ProbeObject3D } from './ProbeObject3D';
 
 interface KelvinDropperSceneProps {
   params: SimulationParams;
   state: SimulationState;
   showHotspots: boolean;
+  probe?: ProbeState;
+  setProbe?: React.Dispatch<React.SetStateAction<ProbeState>>;
 }
 
 export const KelvinDropperScene: React.FC<KelvinDropperSceneProps> = ({
   params,
   state,
   showHotspots,
+  probe,
+  setProbe,
 }) => {
   const [hotspotPositions, setHotspotPositions] = useState<Record<string, ScreenPosition>>({});
 
@@ -119,6 +125,7 @@ export const KelvinDropperScene: React.FC<KelvinDropperSceneProps> = ({
           ringRightPos={ringRightPos}
           canLeftPos={canLeftPos}
           canRightPos={canRightPos}
+          probe={probe}
         />
 
         {/* Electric Field Vector Lines */}
@@ -131,6 +138,7 @@ export const KelvinDropperScene: React.FC<KelvinDropperSceneProps> = ({
           ringRightPos={ringRightPos}
           canLeftPos={canLeftPos}
           canRightPos={canRightPos}
+          probe={probe}
         />
 
         {/* Animated Mobile Electron Flow Along Wires & Leads */}
@@ -166,14 +174,27 @@ export const KelvinDropperScene: React.FC<KelvinDropperSceneProps> = ({
         {/* Ambient Crosswind Breeze Indicator */}
         <WindIndicator params={params} />
 
+        {/* Module 2: Draggable Physical Material Object (Metal, Plastic, Wood, Rubber) */}
+        {probe && setProbe && probe.enabled && (
+          <ProbeObject3D
+            probe={probe}
+            setProbe={setProbe}
+            canLeftPos={canLeftPos}
+            canRightPos={canRightPos}
+            ringLeftPos={ringLeftPos}
+            ringRightPos={ringRightPos}
+          />
+        )}
+
         {/* Interactive Theory 3D Position Tracker (Inside R3F Canvas) */}
         <Hotspot3DTracker
           showHotspots={showHotspots}
           onUpdatePositions={setHotspotPositions}
         />
 
-        {/* Orbit Controls */}
+        {/* Orbit Controls (temporarily disabled while dragging 3D probe) */}
         <OrbitControls
+          enabled={!probe?.isDragging}
           enableDamping={!isSoftwareGl}
           dampingFactor={0.06}
           target={[0, 1.15, 0]}

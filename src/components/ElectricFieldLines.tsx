@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import * as THREE from 'three';
 import { SimulationParams, SimulationState } from '../types/simulation';
+import { ProbeState } from '../types/probingLab';
 
 interface ElectricFieldLinesProps {
   params: SimulationParams;
@@ -11,6 +12,7 @@ interface ElectricFieldLinesProps {
   ringRightPos: [number, number, number];
   canLeftPos: [number, number, number];
   canRightPos: [number, number, number];
+  probe?: ProbeState;
 }
 
 export const ElectricFieldLines: React.FC<ElectricFieldLinesProps> = ({
@@ -22,6 +24,7 @@ export const ElectricFieldLines: React.FC<ElectricFieldLinesProps> = ({
   ringRightPos,
   canLeftPos,
   canRightPos,
+  probe,
 }) => {
   if (!params.showFieldLines) return null;
 
@@ -94,18 +97,29 @@ export const ElectricFieldLines: React.FC<ElectricFieldLinesProps> = ({
     return lines;
   }, [ringRightPos, nozzleRightPos]);
 
-  // Field lines across Spark Gap Spheres
+    // Field lines across Spark Gap Spheres (warped when material probe is nearby)
   const linesSparkGap = useMemo(() => {
     const lines: THREE.BufferGeometry[] = [];
     const halfGap = (params.sparkGapDistance * 0.007) / 2;
     const sparkY = canLeftPos[1] + 0.42;
+
+    const probeNearGap =
+      probe?.enabled &&
+      Math.hypot(probe.position[0], probe.position[1] - sparkY, probe.position[2]) < 0.28;
 
     const count = 5;
     for (let i = 0; i < count; i++) {
       const offset = ((i - (count - 1) / 2) / count) * 0.05;
       const p1 = new THREE.Vector3(-halfGap, sparkY + offset * 0.3, offset);
       const p2 = new THREE.Vector3(halfGap, sparkY + offset * 0.3, offset);
-      const pMid = new THREE.Vector3(0, sparkY + offset * 1.5, offset * 1.5);
+      let pMid = new THREE.Vector3(0, sparkY + offset * 1.5, offset * 1.5);
+
+      if (probeNearGap && probe) {
+        // Warp mid-point towards the material probe
+        const warpFactor = probe.materialId === 'metal-copper' ? 0.75 : 0.45;
+        const probeTarget = new THREE.Vector3(...probe.position);
+        pMid.lerp(probeTarget, warpFactor);
+      }
 
       const curve = new THREE.QuadraticBezierCurve3(p1, pMid, p2);
       const points = curve.getPoints(10);
@@ -113,7 +127,7 @@ export const ElectricFieldLines: React.FC<ElectricFieldLinesProps> = ({
       lines.push(geo);
     }
     return lines;
-  }, [params.sparkGapDistance, canLeftPos]);
+  }, [params.sparkGapDistance, canLeftPos, probe]);
 
   // Color selection based on polarity
   const colorRingA = state.voltageB >= 0 ? '#f59e0b' : '#38bdf8';

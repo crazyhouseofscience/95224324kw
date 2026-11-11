@@ -62,13 +62,13 @@ export const ChargeBuildupSigns: React.FC<ChargeBuildupSignsProps> = ({
     const normVa = Math.min(1.0, Math.abs(state.voltageA) / 14000);
     const normVb = Math.min(1.0, Math.abs(state.voltageB) / 14000);
 
-    const countCanA = Math.max(1, Math.round(normVa * MAX_SIGNS_PER_CAN));
-    const countRingA = Math.max(1, Math.round(normVb * MAX_SIGNS_PER_RING));
-    const countSphereA = Math.max(1, Math.round(normVa * MAX_SIGNS_PER_SPHERE));
+    const countCanA = normVa < 0.01 ? 0 : Math.max(1, Math.round(normVa * MAX_SIGNS_PER_CAN));
+    const countRingA = normVb < 0.01 ? 0 : Math.max(1, Math.round(normVb * MAX_SIGNS_PER_RING));
+    const countSphereA = normVa < 0.01 ? 0 : Math.max(1, Math.round(normVa * MAX_SIGNS_PER_SPHERE));
 
-    const countCanB = Math.max(1, Math.round(normVb * MAX_SIGNS_PER_CAN));
-    const countRingB = Math.max(1, Math.round(normVa * MAX_SIGNS_PER_RING));
-    const countSphereB = Math.max(1, Math.round(normVb * MAX_SIGNS_PER_SPHERE));
+    const countCanB = normVb < 0.01 ? 0 : Math.max(1, Math.round(normVb * MAX_SIGNS_PER_CAN));
+    const countRingB = normVa < 0.01 ? 0 : Math.max(1, Math.round(normVa * MAX_SIGNS_PER_RING));
+    const countSphereB = normVb < 0.01 ? 0 : Math.max(1, Math.round(normVb * MAX_SIGNS_PER_SPHERE));
 
     const isCanAPlus = state.voltageA >= 0;
     const isCanBPlus = state.voltageB >= 0;
@@ -118,7 +118,7 @@ export const ChargeBuildupSigns: React.FC<ChargeBuildupSignsProps> = ({
       }
     };
 
-    // 1. CAN A (Left Can: Positive +)
+    // 1. CAN A (Left Can)
     for (let i = 0; i < countCanA; i++) {
       const angle = distributionData.canAngles[i] + t * 0.12;
       const r = 0.23;
@@ -128,7 +128,7 @@ export const ChargeBuildupSigns: React.FC<ChargeBuildupSignsProps> = ({
       addSign(x, y, z, isCanAPlus, normVa);
     }
 
-    // 2. RING A (Left Ring: Negative −)
+    // 2. RING A (Left Ring)
     for (let i = 0; i < countRingA; i++) {
       const angle = distributionData.ringAngles[i] - t * 0.15;
       const r = 0.13;
@@ -140,8 +140,12 @@ export const ChargeBuildupSigns: React.FC<ChargeBuildupSignsProps> = ({
 
     // 3. NOZZLE TIPS (Offset outside nozzle tips so falling water stream is 100% unblocked)
     const halfSep = Math.abs(canRightPos[0]);
-    addSign(-halfSep - 0.08, 2.08, 0.04, true, normVa); // Offset 8cm left outside Left Nozzle
-    addSign(+halfSep + 0.08, 2.08, 0.04, false, normVb); // Offset 8cm right outside Right Nozzle
+    if (normVa >= 0.05) {
+      addSign(-halfSep - 0.08, 2.08, 0.04, isCanAPlus, normVa);
+    }
+    if (normVb >= 0.05) {
+      addSign(+halfSep + 0.08, 2.08, 0.04, isCanBPlus, normVb);
+    }
 
     // 4. SPARK SPHERE A
     for (let i = 0; i < countSphereA; i++) {

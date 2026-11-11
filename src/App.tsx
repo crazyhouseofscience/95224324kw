@@ -20,6 +20,9 @@ import { VoltageGraph } from './components/VoltageGraph';
 import { SparkFlashBanner } from './components/SparkFlashBanner';
 import { ClassroomLabInvestigation } from './components/ClassroomLabInvestigation';
 import { LightningAnalogyModal } from './components/LightningAnalogyModal';
+import { ProbeState } from './types/probingLab';
+import { INITIAL_PROBE_STATE, stepProbeInteraction } from './services/probingPhysics';
+import { ProbingLabPanel } from './components/ProbingLabPanel';
 
 const INITIAL_PARAMS: SimulationParams = {
   dropletRate: 14,
@@ -92,7 +95,13 @@ export default function App() {
     s.surfaceTension = calculateSurfaceTension(INITIAL_PARAMS.temperature);
     s.dropletDiameter = calculateDropletDiameter(INITIAL_PARAMS.temperature);
     s.growthRate = calculateGrowthRate(INITIAL_PARAMS, s.capacitance, s.inductionCapacitance);
-    const { effA, effB } = calculateCollectionEfficiency(INITIAL_PARAMS.windSpeed, INITIAL_PARAMS.windDirection);
+    const { effA, effB } = calculateCollectionEfficiency(
+      INITIAL_PARAMS.windSpeed,
+      INITIAL_PARAMS.windDirection,
+      s.voltageA,
+      s.voltageB,
+      INITIAL_PARAMS.enableDeflection
+    );
     s.collectionEfficiencyA = effA;
     s.collectionEfficiencyB = effB;
     const { chargingEfficiency, isStreamContinuous, breakupLength } = calculateChargingEfficiency(INITIAL_PARAMS.dropletRate);
@@ -112,6 +121,10 @@ export default function App() {
   const [passcodeDigits, setPasscodeDigits] = useState(['', '', '', '', '', '', '', '']);
   const [passcodeError, setPasscodeError] = useState(false);
 
+  // Module switcher: Part 1 (Classic Generator) vs Part 2 (Material Interaction Lab)
+  const [activeModule, setActiveModule] = useState<'module1' | 'module2'>('module1');
+  const [probe, setProbe] = useState<ProbeState>(INITIAL_PROBE_STATE);
+
   const CORRECT_PASSCODE = 'PAHS2026';
 
   const handlePasscodeSubmit = (e?: React.FormEvent) => {
@@ -129,6 +142,8 @@ export default function App() {
   // References to keep render loop decoupled from React state triggers
   const stateRef = useRef<SimulationState>(state);
   const paramsRef = useRef<SimulationParams>(params);
+  const activeModuleRef = useRef<'module1' | 'module2'>(activeModule);
+  const probeRef = useRef<ProbeState>(probe);
   const lastStepTimeRef = useRef<number>(performance.now());
   const lastDataSampleTimeRef = useRef<number>(0);
   const seedVoltageRef = useRef<number>(params.seedVoltage);
@@ -141,6 +156,14 @@ export default function App() {
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  useEffect(() => {
+    activeModuleRef.current = activeModule;
+  }, [activeModule]);
+
+  useEffect(() => {
+    probeRef.current = probe;
+  }, [probe]);
 
   // Spark callback triggering procedural audio
   const handleSpark = useCallback((energyJoules: number, voltageKv: number) => {
@@ -160,12 +183,48 @@ export default function App() {
 
       if (dt > 0 && dt < 0.1 && !paramsRef.current.isPaused) {
         // Step physics forward
-        const nextState = stepPhysics(
+        let nextState = stepPhysics(
           stateRef.current,
           paramsRef.current,
           dt,
           handleSpark
         );
+
+        // Step Module 2 Material Probe interactions if active
+        if (activeModuleRef.current === 'module2' && probeRef.current.enabled) {
+          const sep = paramsRef.current.dropperSeparation;
+          const ringY = 2.0 - paramsRef.current.ringHeight;
+          const canLeft: [number, number, number] = [-sep / 2, 0.45, 0];
+          const canRight: [number, number, number] = [sep / 2, 0.45, 0];
+          const ringLeft: [number, number, number] = [-sep / 2, ringY, 0];
+          const ringRight: [number, number, number] = [sep / 2, ringY, 0];
+
+          const probeRes = stepProbeInteraction(
+            probeRef.current,
+            nextState,
+            paramsRef.current,
+            dt,
+            canLeft,
+            canRight,
+            ringLeft,
+            ringRight
+          );
+
+          if (probeRes.playDischargeAudio && paramsRef.current.audioEnabled) {
+            handleSpark(probeRes.dischargeEnergyJoules, Math.abs(nextState.potentialDifference) / 1000);
+          }
+
+          if (Object.keys(probeRes.modifiedState).length > 0) {
+            nextState = {
+              ...nextState,
+              ...probeRes.modifiedState,
+            };
+          }
+
+          probeRef.current = probeRes.updatedProbe;
+          setProbe(probeRes.updatedProbe);
+        }
+
         stateRef.current = nextState;
         setState(nextState);
 
@@ -212,7 +271,13 @@ export default function App() {
   const handleReset = () => {
     const seed = Math.max(30, Math.abs(params.seedVoltage) * 8);
     const initialVDiff = seed * 2;
-    const { effA, effB } = calculateCollectionEfficiency(params.windSpeed, params.windDirection);
+    const { effA, effB } = calculateCollectionEfficiency(
+      params.windSpeed,
+      params.windDirection,
+      seed,
+      -seed,
+      params.enableDeflection
+    );
     const { chargingEfficiency, isStreamContinuous, breakupLength } = calculateChargingEfficiency(params.dropletRate);
 
     const next: SimulationState = {
@@ -399,6 +464,8 @@ export default function App() {
             showGraphOverlay={showGraphOverlay}
             setShowGraphOverlay={setShowGraphOverlay}
             onTriggerSpark={handleManualDischarge}
+            activeModule={activeModule}
+            setActiveModule={setActiveModule}
           />
 
           {/* 2. SUBTLE VIEWPORT EDGE FLASH ON SPARK */}
@@ -414,6 +481,8 @@ export default function App() {
               params={params}
               state={state}
               showHotspots={showHotspots}
+              probe={activeModule === 'module2' ? probe : undefined}
+              setProbe={activeModule === 'module2' ? setProbe : undefined}
             />
           </main>
 
@@ -431,20 +500,30 @@ export default function App() {
             </aside>
           )}
 
-          {/* 5. COLLAPSIBLE LEFT & RIGHT SIDE PANELS (100% Free Viewport Center) */}
-          <SidePanels
-            params={params}
-            setParams={setParams}
-            state={state}
-            onReset={handleReset}
-            onManualDischarge={handleManualDischarge}
-            showHotspots={showHotspots}
-            setShowHotspots={setShowHotspots}
-            showGraphOverlay={showGraphOverlay}
-            setShowGraphOverlay={setShowGraphOverlay}
-            onOpenLabInvestigation={() => setShowLabInvestigation(true)}
-            onOpenLightningModal={() => setShowLightningModal(true)}
-          />
+          {/* 5. SIDE PANELS: Module 1 (Apparatus Controls) vs Module 2 (Material Interaction Lab) */}
+          {activeModule === 'module1' ? (
+            <SidePanels
+              params={params}
+              setParams={setParams}
+              state={state}
+              onReset={handleReset}
+              onManualDischarge={handleManualDischarge}
+              showHotspots={showHotspots}
+              setShowHotspots={setShowHotspots}
+              showGraphOverlay={showGraphOverlay}
+              setShowGraphOverlay={setShowGraphOverlay}
+              onOpenLabInvestigation={() => setShowLabInvestigation(true)}
+              onOpenLightningModal={() => setShowLightningModal(true)}
+            />
+          ) : (
+            <ProbingLabPanel
+              probe={probe}
+              setProbe={setProbe}
+              state={state}
+              params={params}
+              onResetApparatus={handleReset}
+            />
+          )}
 
           {/* 6. CP CHEMISTRY LAB INVESTIGATION MODAL */}
           <ClassroomLabInvestigation

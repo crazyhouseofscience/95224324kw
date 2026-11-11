@@ -147,34 +147,56 @@ export function getWindVector(speed: number, direction: SimulationParams['windDi
 }
 
 /**
- * Calculate droplet collection efficiency (0.0 to 1.0) under crosswind.
+ * Calculate droplet collection efficiency (0.0 to 1.0) under crosswind and electrostatic spray repulsion.
+ * When voltage is high or wind is blowing, droplets flare outward in a cone.
+ * If droplets flare past the mouth of the Faraday collector can (r > 0.19m),
+ * collection efficiency drops off sharply!
  */
 export function calculateCollectionEfficiency(
   windSpeed: number,
-  windDirection: SimulationParams['windDirection']
+  windDirection: SimulationParams['windDirection'],
+  voltageA: number = 0,
+  voltageB: number = 0,
+  enableDeflection: boolean = true
 ): { effA: number; effB: number } {
-  if (windSpeed <= 0.2) {
-    return { effA: 1.0, effB: 1.0 };
+  // 1. Wind drift displacement (m) over ~0.45s falling duration
+  let driftWindX = 0;
+  let driftWindZ = 0;
+  if (windSpeed > 0.05) {
+    const [wx, wy, wz] = getWindVector(windSpeed, windDirection);
+    const tFall = 0.45;
+    driftWindX = wx * tFall * 0.38;
+    driftWindZ = wz * tFall * 0.38;
   }
 
-  const drift = windSpeed * 0.07;
+  // 2. Electrostatic Spray Cone Flaring (Coulomb Repulsion from Like-Charged Can)
+  const vAKv = Math.abs(voltageA) / 1000;
+  const vBKv = Math.abs(voltageB) / 1000;
+  const deflectScale = enableDeflection ? 1.0 : 0.05;
+
+  // Repulsion displacement at the top opening of the can (m)
+  // At 10-15 kV, droplets flare outward by 0.10 - 0.22 m
+  const electroOffsetA = Math.pow(vAKv / 6.0, 1.45) * 0.065 * deflectScale;
+  const electroOffsetB = Math.pow(vBKv / 6.0, 1.45) * 0.065 * deflectScale;
+
   const canRadius = 0.19;
-  const baseEff = Math.max(0.08, 1.0 - (drift / canRadius) * 0.9);
 
-  let effA = baseEff;
-  let effB = baseEff;
+  const totalOffsetA = Math.hypot(driftWindX + electroOffsetA, driftWindZ);
+  const totalOffsetB = Math.hypot(driftWindX - electroOffsetB, driftWindZ);
 
-  if (windDirection === 'left-to-right') {
-    effA = Math.max(0.15, baseEff * 1.05);
-    effB = Math.max(0.05, baseEff * 0.82);
-  } else if (windDirection === 'right-to-left') {
-    effA = Math.max(0.05, baseEff * 0.82);
-    effB = Math.max(0.15, baseEff * 1.05);
+  let effA = 1.0;
+  if (totalOffsetA > 0.04) {
+    effA = Math.max(0.0, 1.0 - Math.pow(totalOffsetA / canRadius, 2.0));
+  }
+
+  let effB = 1.0;
+  if (totalOffsetB > 0.04) {
+    effB = Math.max(0.0, 1.0 - Math.pow(totalOffsetB / canRadius, 2.0));
   }
 
   return {
-    effA: Math.min(1.0, Math.max(0.02, effA)),
-    effB: Math.min(1.0, Math.max(0.02, effB)),
+    effA: Math.min(1.0, Math.max(0.0, effA)),
+    effB: Math.min(1.0, Math.max(0.0, effB)),
   };
 }
 
@@ -189,12 +211,24 @@ export function calculateCollectionEfficiency(
 export function calculateGrowthRate(
   params: SimulationParams,
   cCan: number,
-  cInd: number
+  cInd: number,
+  voltageA: number = 0,
+  voltageB: number = 0
 ): number {
   const rLeak = calculateLeakageResistance(params.humidity, params.dropletRate);
-  const { effA, effB } = calculateCollectionEfficiency(params.windSpeed, params.windDirection);
+  const { effA, effB } = calculateCollectionEfficiency(
+    params.windSpeed,
+    params.windDirection,
+    voltageA,
+    voltageB,
+    params.enableDeflection
+  );
   const { chargingEfficiency } = calculateChargingEfficiency(params.dropletRate);
-  const avgEff = (effA + effB) / 2;
+  
+  // Strictly couple impact percentage to charge transfer: if < 0.2, zero charge transfer entirely
+  const effectiveEffA = effA < 0.2 ? 0.0 : effA;
+  const effectiveEffB = effB < 0.2 ? 0.0 : effB;
+  const avgEff = (effectiveEffA + effectiveEffB) / 2;
 
   const baseInductionMultiplier = 0.082; // s^-1 per drip/s
   // Effective charging rate scales with droplet rate AND charging efficiency
@@ -232,12 +266,35 @@ export function stepPhysics(
   const surfaceTension = calculateSurfaceTension(params.temperature);
   const dropletDiameter = calculateDropletDiameter(params.temperature);
 
-  const { effA, effB } = calculateCollectionEfficiency(params.windSpeed, params.windDirection);
-  const { chargingEfficiency, isStreamContinuous, breakupLength } = calculateChargingEfficiency(params.dropletRate);
-
   // Current potentials
   let vA = state.voltageA;
   let vB = state.voltageB;
+
+  // Calculate dynamic collection efficiency based on current voltage and wind
+  const { effA: calcEffA, effB: calcEffB } = calculateCollectionEfficiency(
+    params.windSpeed,
+    params.windDirection,
+    vA,
+    vB,
+    params.enableDeflection
+  );
+
+  let effA = calcEffA;
+  let effB = calcEffB;
+
+  // If a Probe / Material interaction explicitly modified collection efficiency (e.g. blocking water stream A), respect it
+  if (state.collectionEfficiencyA !== undefined && state.collectionEfficiencyA < calcEffA) {
+    effA = state.collectionEfficiencyA;
+  }
+  if (state.collectionEfficiencyB !== undefined && state.collectionEfficiencyB < calcEffB) {
+    effB = state.collectionEfficiencyB;
+  }
+
+  // Strictly couple collection efficiency to charge transfer: if < 0.2, zero charge accumulation entirely!
+  const effectiveEffA = effA < 0.2 ? 0.0 : effA;
+  const effectiveEffB = effB < 0.2 ? 0.0 : effB;
+
+  const { chargingEfficiency, isStreamContinuous, breakupLength } = calculateChargingEfficiency(params.dropletRate);
 
   // Initial seed safeguard
   const userSeed = Math.max(15, Math.abs(params.seedVoltage) * 5);
@@ -246,10 +303,10 @@ export function stepPhysics(
     vB = -userSeed;
   }
 
-  // Positive feedback rate incorporating jet continuity efficiency
+  // Positive feedback rate incorporating jet continuity efficiency and strict droplet impact percentage
   const baseInductionMultiplier = 0.082;
-  const chargingRateA = params.dropletRate * effA * chargingEfficiency * baseInductionMultiplier;
-  const chargingRateB = params.dropletRate * effB * chargingEfficiency * baseInductionMultiplier;
+  const chargingRateA = params.dropletRate * effectiveEffA * chargingEfficiency * baseInductionMultiplier;
+  const chargingRateB = params.dropletRate * effectiveEffB * chargingEfficiency * baseInductionMultiplier;
   const leakageRate = 1.0 / (rLeak * cCan);
 
   const dVA_dt = -chargingRateA * vB - vA * leakageRate;
@@ -306,28 +363,31 @@ export function stepPhysics(
   // Droplet water volume accumulated (mL)
   const rMm = dropletDiameter / 2;
   const dropVolMl = (4 / 3) * Math.PI * Math.pow(rMm, 3) / 1000;
-  const waterFlowMlA = params.dropletRate * effA * dropVolMl * effectiveDt;
-  const waterFlowMlB = params.dropletRate * effB * dropVolMl * effectiveDt;
+  const waterFlowMlA = params.dropletRate * effectiveEffA * dropVolMl * effectiveDt;
+  const waterFlowMlB = params.dropletRate * effectiveEffB * dropVolMl * effectiveDt;
 
   const currentWaterVolumeA = (state.currentWaterVolumeA + waterFlowMlA) % 350;
   const currentWaterVolumeB = (state.currentWaterVolumeB + waterFlowMlB) % 350;
 
-  const growthRate = calculateGrowthRate(params, cCan, cInd);
+  const growthRate = calculateGrowthRate(params, cCan, cInd, vA, vB);
   const sparkProgressPercent = Math.min(100, Math.round((Math.abs(vDiff) / breakdownV) * 100));
+  const avgEff = (effectiveEffA + effectiveEffB) / 2;
 
   // Time to next spark and pedagogical status message
   let timeToNextSpark = 0;
   let statusMessage = '';
-  if (growthRate <= 0.05) {
+  if (growthRate <= 0.05 || avgEff < 0.2) {
     timeToNextSpark = Infinity;
     if (params.humidity > 75) {
-      statusMessage = `⚠️ Quenched by ${params.humidity}% humidity. Lower humidity below 65% to spark.`;
-    } else if (params.windSpeed > 2.5) {
-      statusMessage = '⚠️ Strong wind blowing drops past the cans. Reduce wind speed.';
+      statusMessage = `⚠️ Quenched by ${params.humidity}% humidity. Moisture film on insulating stands is leaking charge.`;
+    } else if (params.windSpeed > 2.0) {
+      statusMessage = `⚠️ Wind draft is blowing drops past the cans (${Math.round((1 - avgEff) * 100)}% missing). Charge collection halted.`;
     } else if (isStreamContinuous) {
       statusMessage = '⚠️ Continuous jet! Water column is conducting charge back to grounded nozzle.';
+    } else if (avgEff < 0.2) {
+      statusMessage = `⚠️ Droplet Impact Threshold (<20% landing): Droplets missing can opening (${Math.round((1 - (effA + effB)/2) * 100)}% missing). Charge accumulation halted; no spark.`;
     } else {
-      statusMessage = '⚠️ Charging rate too low. Increase droplet flow rate.';
+      statusMessage = '⚠️ Charging rate too low to overcome insulator leakage. Increase droplet flow rate.';
     }
   } else {
     const currentAbsV = Math.max(10, Math.abs(vDiff));
