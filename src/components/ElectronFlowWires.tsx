@@ -162,8 +162,12 @@ export const ElectronFlowWires: React.FC<ElectronFlowWiresProps> = ({
       }
     };
 
-    // 1. WIRE B -> A (Can B UP to Ring A)
-    const dirBtoA = (isChemistryMode ? 1 : -1) * (state.voltageB >= state.voltageA ? 1 : -1);
+    // 1. WIRE B -> A (curveBtoA: t=0 at Can B, t=1 at Ring A)
+    // Can B (Right Collector) accumulates charge and energizes Ring A (Left Ring)
+    const isBtoAPositive = state.voltageB >= 0;
+    // In Chemistry mode: charge flows UP from Can B to Ring A (+1).
+    // In Physics mode: mobile e- flow UP from Can B (+1) if Can B is negative, or DOWN (-1) if positive.
+    const dirBtoA = isChemistryMode ? 1.0 : (isBtoAPositive ? -1.0 : 1.0);
     let pIdx = 0;
     for (let i = 0; i < PARTICLES_PER_WIRE; i++) {
       let t = (phaseOffsets[pIdx++] + tGlobal * dirBtoA) % 1.0;
@@ -172,8 +176,12 @@ export const ElectronFlowWires: React.FC<ElectronFlowWiresProps> = ({
       addChargeSymbol(_pos.x, _pos.y + 0.025, _pos.z + 0.04, isCanBPlus, colorCanB);
     }
 
-    // 2. WIRE A -> B (Can A UP to Ring B)
-    const dirAtoB = (isChemistryMode ? 1 : -1) * (state.voltageA >= state.voltageB ? 1 : -1);
+    // 2. WIRE A -> B (curveAtoB: t=0 at Can A, t=1 at Ring B)
+    // Can A (Left Collector) accumulates charge and energizes Ring B (Right Ring)
+    const isAtoBPositive = state.voltageA >= 0;
+    // In Chemistry mode: charge flows UP from Can A to Ring B (+1).
+    // In Physics mode: mobile e- flow DOWN from Ring B to Can A (-1) if Can A is positive.
+    const dirAtoB = isChemistryMode ? 1.0 : (isAtoBPositive ? -1.0 : 1.0);
     for (let i = 0; i < PARTICLES_PER_WIRE; i++) {
       let t = (phaseOffsets[pIdx++] + tGlobal * dirAtoB) % 1.0;
       if (t < 0) t += 1.0;
