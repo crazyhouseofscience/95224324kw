@@ -1,7 +1,8 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import * as THREE from 'three';
+import { useFrame } from '@react-three/fiber';
 import { SimulationParams, SimulationState } from '../types/simulation';
-import { ProbeState } from '../types/probingLab';
+import { ProbeState, MATERIAL_DEFINITIONS } from '../types/probingLab';
 
 interface ElectricFieldLinesProps {
   params: SimulationParams;
@@ -26,18 +27,30 @@ export const ElectricFieldLines: React.FC<ElectricFieldLinesProps> = ({
   canRightPos,
   probe,
 }) => {
+  const matRingARef = useRef<THREE.LineDashedMaterial>(null);
+  const matRingBRef = useRef<THREE.LineDashedMaterial>(null);
+  const matProbeRef = useRef<THREE.LineDashedMaterial>(null);
+
   if (!params.showFieldLines) return null;
 
-  // Potential magnitudes
+  // Potential normalized magnitudes
   const normVa = Math.min(1.0, Math.abs(state.voltageA) / 12000);
   const normVb = Math.min(1.0, Math.abs(state.voltageB) / 12000);
   const normDiff = Math.min(1.0, Math.abs(state.potentialDifference) / 15000);
 
-  // Field lines between Nozzle A (ground 0V) and Ring A (potential V_B)
+  // Probe Position & Material Specs
+  const probePos = probe && probe.enabled ? new THREE.Vector3(...probe.position) : null;
+  const probeMat = probe ? MATERIAL_DEFINITIONS[probe.materialId] : null;
+  const kappa = probe ? probe.customPermittivity || (probeMat ? probeMat.permittivity : 1.0) : 1.0;
+
+  // ----------------------------------------------------
+  // 1. RING A FIELD LINES (Warped dynamically by Probe)
+  // ----------------------------------------------------
   const linesRingA = useMemo(() => {
     const lines: THREE.BufferGeometry[] = [];
-    const numLines = 8;
+    const numLines = 10;
     const rRing = 0.095;
+    const ringLeftCenter = new THREE.Vector3(...ringLeftPos);
 
     for (let i = 0; i < numLines; i++) {
       const angle = (i / numLines) * Math.PI * 2;
@@ -51,24 +64,49 @@ export const ElectricFieldLines: React.FC<ElectricFieldLinesProps> = ({
 
       const pStart = new THREE.Vector3(nx, ny, nz);
       const pEnd = new THREE.Vector3(rx, ry, rz);
-      const pMid = new THREE.Vector3(
+      let pMid = new THREE.Vector3(
         (nx + rx) / 2 + Math.cos(angle) * 0.03,
         (ny + ry) / 2,
         (nz + rz) / 2 + Math.sin(angle) * 0.03
       );
 
+      // Check field distortion from Probe near Ring A
+      if (probePos) {
+        const distToRing = pMid.distanceTo(probePos);
+        if (distToRing < 0.42) {
+          const proxRatio = Math.pow(1.0 - distToRing / 0.42, 1.3);
+          let warpFactor = 0.25;
+
+          if (probe?.materialId === 'metal-copper') {
+            warpFactor = probe.isGrounded ? 0.85 : 0.65; // Conductor image charge attraction
+          } else if (probe?.materialId === 'plastic-pvc') {
+            warpFactor = 0.35 + Math.min(0.4, Math.abs(probe.chargeKv) * 0.03); // Triboelectric charge repulsion/attraction
+          } else if (probe?.materialId === 'ionizing-flame') {
+            warpFactor = 0.55; // Plasma ion dispersion
+          } else {
+            warpFactor = 0.2 + (kappa - 1) * 0.08; // Dielectric polarization
+          }
+
+          const totalWarp = proxRatio * warpFactor;
+          pMid.lerp(probePos, totalWarp * 0.8);
+          pEnd.lerp(probePos, totalWarp * 0.4);
+        }
+      }
+
       const curve = new THREE.QuadraticBezierCurve3(pStart, pMid, pEnd);
-      const points = curve.getPoints(12);
+      const points = curve.getPoints(14);
       const geo = new THREE.BufferGeometry().setFromPoints(points);
       lines.push(geo);
     }
     return lines;
-  }, [ringLeftPos, nozzleLeftPos]);
+  }, [ringLeftPos, nozzleLeftPos, probePos, probe?.materialId, probe?.isGrounded, probe?.chargeKv, kappa]);
 
-  // Field lines between Nozzle B (ground 0V) and Ring B (potential V_A)
+  // ----------------------------------------------------
+  // 2. RING B FIELD LINES (Warped dynamically by Probe)
+  // ----------------------------------------------------
   const linesRingB = useMemo(() => {
     const lines: THREE.BufferGeometry[] = [];
-    const numLines = 8;
+    const numLines = 10;
     const rRing = 0.095;
 
     for (let i = 0; i < numLines; i++) {
@@ -83,55 +121,123 @@ export const ElectricFieldLines: React.FC<ElectricFieldLinesProps> = ({
 
       const pStart = new THREE.Vector3(nx, ny, nz);
       const pEnd = new THREE.Vector3(rx, ry, rz);
-      const pMid = new THREE.Vector3(
+      let pMid = new THREE.Vector3(
         (nx + rx) / 2 + Math.cos(angle) * 0.03,
         (ny + ry) / 2,
         (nz + rz) / 2 + Math.sin(angle) * 0.03
       );
 
+      // Check field distortion from Probe near Ring B
+      if (probePos) {
+        const distToRing = pMid.distanceTo(probePos);
+        if (distToRing < 0.42) {
+          const proxRatio = Math.pow(1.0 - distToRing / 0.42, 1.3);
+          let warpFactor = 0.25;
+
+          if (probe?.materialId === 'metal-copper') {
+            warpFactor = probe.isGrounded ? 0.85 : 0.65;
+          } else if (probe?.materialId === 'plastic-pvc') {
+            warpFactor = 0.35 + Math.min(0.4, Math.abs(probe.chargeKv) * 0.03);
+          } else if (probe?.materialId === 'ionizing-flame') {
+            warpFactor = 0.55;
+          } else {
+            warpFactor = 0.2 + (kappa - 1) * 0.08;
+          }
+
+          const totalWarp = proxRatio * warpFactor;
+          pMid.lerp(probePos, totalWarp * 0.8);
+          pEnd.lerp(probePos, totalWarp * 0.4);
+        }
+      }
+
       const curve = new THREE.QuadraticBezierCurve3(pStart, pMid, pEnd);
-      const points = curve.getPoints(12);
+      const points = curve.getPoints(14);
       const geo = new THREE.BufferGeometry().setFromPoints(points);
       lines.push(geo);
     }
     return lines;
-  }, [ringRightPos, nozzleRightPos]);
+  }, [ringRightPos, nozzleRightPos, probePos, probe?.materialId, probe?.isGrounded, probe?.chargeKv, kappa]);
 
-    // Field lines across Spark Gap Spheres (warped when material probe is nearby)
+  // ----------------------------------------------------
+  // 3. DYNAMIC FIELD FLUX LINES TERMINATING ON PROBE OBJECT
+  // ----------------------------------------------------
+  const linesProbeInteraction = useMemo(() => {
+    if (!probePos) return [];
+    const lines: THREE.BufferGeometry[] = [];
+
+    const ringA = new THREE.Vector3(...ringLeftPos);
+    const ringB = new THREE.Vector3(...ringRightPos);
+
+    const distA = ringA.distanceTo(probePos);
+    const distB = ringB.distanceTo(probePos);
+
+    const targetRing = distA < distB ? ringA : ringB;
+    const minDist = Math.min(distA, distB);
+
+    if (minDist < 0.38) {
+      const count = 6;
+      const rRing = 0.095;
+      for (let i = 0; i < count; i++) {
+        const angle = (i / count) * Math.PI * 2;
+        const pStart = new THREE.Vector3(
+          targetRing.x + Math.cos(angle) * rRing,
+          targetRing.y,
+          targetRing.z + Math.sin(angle) * rRing
+        );
+        const pEnd = probePos.clone().add(
+          new THREE.Vector3(
+            (Math.cos(angle) * 0.04),
+            (Math.sin(angle) * 0.04),
+            (Math.cos(angle * 2) * 0.02)
+          )
+        );
+        const pMid = pStart.clone().lerp(pEnd, 0.5);
+        pMid.y += 0.04 * Math.sin(angle);
+
+        const curve = new THREE.QuadraticBezierCurve3(pStart, pMid, pEnd);
+        const points = curve.getPoints(12);
+        const geo = new THREE.BufferGeometry().setFromPoints(points);
+        lines.push(geo);
+      }
+    }
+    return lines;
+  }, [probePos, ringLeftPos, ringRightPos]);
+
+  // ----------------------------------------------------
+  // 4. SPARK GAP SPHERES FIELD LINES (Warped by Probe)
+  // ----------------------------------------------------
   const linesSparkGap = useMemo(() => {
     const lines: THREE.BufferGeometry[] = [];
     const halfGap = (params.sparkGapDistance * 0.007) / 2;
     const sparkY = canLeftPos[1] + 0.42;
 
     const probeNearGap =
-      probe?.enabled &&
-      Math.hypot(probe.position[0], probe.position[1] - sparkY, probe.position[2]) < 0.28;
+      probePos && Math.hypot(probePos.x - 0, probePos.y - sparkY, probePos.z) < 0.32;
 
-    const count = 5;
+    const count = 6;
     for (let i = 0; i < count; i++) {
       const offset = ((i - (count - 1) / 2) / count) * 0.05;
       const p1 = new THREE.Vector3(-halfGap, sparkY + offset * 0.3, offset);
       const p2 = new THREE.Vector3(halfGap, sparkY + offset * 0.3, offset);
       let pMid = new THREE.Vector3(0, sparkY + offset * 1.5, offset * 1.5);
 
-      if (probeNearGap && probe) {
-        // Warp mid-point towards the material probe
-        const warpFactor = probe.materialId === 'metal-copper' ? 0.75 : 0.45;
-        const probeTarget = new THREE.Vector3(...probe.position);
-        pMid.lerp(probeTarget, warpFactor);
+      if (probeNearGap && probePos) {
+        const warpFactor = probe?.materialId === 'metal-copper' ? 0.8 : 0.5;
+        pMid.lerp(probePos, warpFactor);
       }
 
       const curve = new THREE.QuadraticBezierCurve3(p1, pMid, p2);
-      const points = curve.getPoints(10);
+      const points = curve.getPoints(12);
       const geo = new THREE.BufferGeometry().setFromPoints(points);
       lines.push(geo);
     }
     return lines;
-  }, [params.sparkGapDistance, canLeftPos, probe]);
+  }, [params.sparkGapDistance, canLeftPos, probePos, probe?.materialId]);
 
   // Color selection based on polarity
   const colorRingA = state.voltageB >= 0 ? '#f59e0b' : '#38bdf8';
   const colorRingB = state.voltageA >= 0 ? '#f59e0b' : '#38bdf8';
+  const colorProbe = probe?.materialId === 'metal-copper' ? '#38bdf8' : '#e879f9';
 
   const lineObjectsA = useMemo(() => {
     const mat = new THREE.LineDashedMaterial({
@@ -139,7 +245,7 @@ export const ElectricFieldLines: React.FC<ElectricFieldLinesProps> = ({
       dashSize: 0.02,
       gapSize: 0.015,
       transparent: true,
-      opacity: Math.max(0.2, normVb * 0.8),
+      opacity: Math.max(0.25, normVb * 0.85),
     });
     return linesRingA.map((geo) => {
       const line = new THREE.Line(geo, mat);
@@ -154,7 +260,7 @@ export const ElectricFieldLines: React.FC<ElectricFieldLinesProps> = ({
       dashSize: 0.02,
       gapSize: 0.015,
       transparent: true,
-      opacity: Math.max(0.2, normVa * 0.8),
+      opacity: Math.max(0.25, normVa * 0.85),
     });
     return linesRingB.map((geo) => {
       const line = new THREE.Line(geo, mat);
@@ -162,6 +268,21 @@ export const ElectricFieldLines: React.FC<ElectricFieldLinesProps> = ({
       return line;
     });
   }, [linesRingB, colorRingB, normVa]);
+
+  const lineObjectsProbe = useMemo(() => {
+    const mat = new THREE.LineDashedMaterial({
+      color: colorProbe,
+      dashSize: 0.018,
+      gapSize: 0.012,
+      transparent: true,
+      opacity: 0.9,
+    });
+    return linesProbeInteraction.map((geo) => {
+      const line = new THREE.Line(geo, mat);
+      line.computeLineDistances();
+      return line;
+    });
+  }, [linesProbeInteraction, colorProbe]);
 
   const lineObjectsSpark = useMemo(() => {
     const mat = new THREE.LineBasicMaterial({
@@ -171,6 +292,30 @@ export const ElectricFieldLines: React.FC<ElectricFieldLinesProps> = ({
     });
     return linesSparkGap.map((geo) => new THREE.Line(geo, mat));
   }, [linesSparkGap, normDiff]);
+
+  // Animate line dash movements dynamically over time
+  useFrame(({ clock }) => {
+    const t = clock.getElapsedTime();
+    const dashOffset = -t * 0.25;
+
+    lineObjectsA.forEach((obj) => {
+      if (obj.material) {
+        (obj.material as unknown as { dashOffset: number }).dashOffset = dashOffset;
+      }
+    });
+
+    lineObjectsB.forEach((obj) => {
+      if (obj.material) {
+        (obj.material as unknown as { dashOffset: number }).dashOffset = dashOffset;
+      }
+    });
+
+    lineObjectsProbe.forEach((obj) => {
+      if (obj.material) {
+        (obj.material as unknown as { dashOffset: number }).dashOffset = -t * 0.5; // Faster flow into probe object
+      }
+    });
+  });
 
   return (
     <group>
@@ -182,6 +327,11 @@ export const ElectricFieldLines: React.FC<ElectricFieldLinesProps> = ({
       {/* Ring B Field Lines */}
       {lineObjectsB.map((lineObj, idx) => (
         <primitive key={`ringB_${idx}`} object={lineObj} />
+      ))}
+
+      {/* Dedicated Probe Field Flux Coupling Lines */}
+      {lineObjectsProbe.map((lineObj, idx) => (
+        <primitive key={`probe_${idx}`} object={lineObj} />
       ))}
 
       {/* Spark Gap Field Lines */}

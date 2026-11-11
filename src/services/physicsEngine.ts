@@ -67,34 +67,45 @@ export function calculateLeakageResistance(humidityPercent: number, dropletRate:
 }
 
 /**
- * Calculate Plateau-Rayleigh stream breakup length and charging efficiency.
- * As water flow increases from slow drops to a fast stream:
- * - Slow/Moderate flow: Stream breaks into discrete drops inside the induction ring (Efficiency = 1.0)
- * - Very high flow (>24 drips/s): Jet extends through the ring as a continuous liquid column.
- *   Because water is conductive, charges conduct back up to the grounded nozzle, causing
- *   charging efficiency and spark rate to drop off sharply!
+ * Calculate Plateau-Rayleigh stream breakup length and charging efficiency as a function of flow rate.
+ * - Slow flow (<= 5 drips/s): Inter-drip delay (0.2s-0.5s per drip) allows charge to dissipate
+ *   into ambient air/stands before the next drop arrives. Net induction = 0 V (No spark).
+ * - Transition flow (5-8 drips/s): Partial charge accumulation as drip frequency matches charge relaxation time.
+ * - Optimal flow (8-20 drips/s): Discrete drop charging at peak efficiency (1.0). Frequent sparks!
+ * - Very high flow (>20 drips/s): Jet extends through ring. At >=26 drips/s, continuous water column
+ *   shorts charge back to grounded nozzle (0 V).
  */
 export function calculateChargingEfficiency(dropletRate: number): {
   chargingEfficiency: number;
   isStreamContinuous: boolean;
   breakupLength: number;
+  isTooSlow: boolean;
 } {
   const breakupLength = 0.22 + (dropletRate / 35) * 0.46;
   const isStreamContinuous = dropletRate >= 26;
+  const isTooSlow = dropletRate <= 5;
 
   let efficiency = 1.0;
+
   if (dropletRate >= 26) {
     // Continuous solid stream through the ring: electrical short circuit! Zero net induction charging.
     efficiency = 0.0;
   } else if (dropletRate > 20) {
     const overage = (dropletRate - 20) / 6;
     efficiency = Math.max(0.0, 1.0 - Math.pow(overage, 1.2) * 1.0);
+  } else if (dropletRate <= 5) {
+    // Slow drip rate (<=5 drips/s): inter-drip delay allows charge to bleed away completely between drops!
+    efficiency = 0.0;
+  } else if (dropletRate < 8) {
+    // Transition zone (5 < f < 8): efficiency ramps up from 0 to 1
+    efficiency = (dropletRate - 5) / 3.0;
   }
 
   return {
     chargingEfficiency: efficiency,
     isStreamContinuous,
     breakupLength,
+    isTooSlow,
   };
 }
 
@@ -294,7 +305,7 @@ export function stepPhysics(
   const effectiveEffA = effA < 0.2 ? 0.0 : effA;
   const effectiveEffB = effB < 0.2 ? 0.0 : effB;
 
-  const { chargingEfficiency, isStreamContinuous, breakupLength } = calculateChargingEfficiency(params.dropletRate);
+  const { chargingEfficiency, isStreamContinuous, breakupLength, isTooSlow } = calculateChargingEfficiency(params.dropletRate);
 
   // Initial seed safeguard
   const userSeed = Math.max(15, Math.abs(params.seedVoltage) * 5);
@@ -376,7 +387,7 @@ export function stepPhysics(
   // Time to next spark and pedagogical status message
   let timeToNextSpark = 0;
   let statusMessage = '';
-  if (growthRate <= 0.05 || avgEff < 0.2) {
+  if (growthRate <= 0.05 || avgEff < 0.2 || isTooSlow) {
     timeToNextSpark = Infinity;
     if (params.humidity > 75) {
       statusMessage = `⚠️ Quenched by ${params.humidity}% humidity. Moisture film on insulating stands is leaking charge.`;
@@ -384,10 +395,12 @@ export function stepPhysics(
       statusMessage = `⚠️ Wind draft is blowing drops past the cans (${Math.round((1 - avgEff) * 100)}% missing). Charge collection halted.`;
     } else if (isStreamContinuous) {
       statusMessage = '⚠️ Continuous jet! Water column is conducting charge back to grounded nozzle.';
+    } else if (isTooSlow) {
+      statusMessage = `⚠️ Flow Rate Too Slow (${params.dropletRate} drips/s): Inter-drip delay allows charge to dissipate before next drop arrives. No spark generated.`;
     } else if (avgEff < 0.2) {
       statusMessage = `⚠️ Droplet Impact Threshold (<20% landing): Droplets missing can opening (${Math.round((1 - (effA + effB)/2) * 100)}% missing). Charge accumulation halted; no spark.`;
     } else {
-      statusMessage = '⚠️ Charging rate too low to overcome insulator leakage. Increase droplet flow rate.';
+      statusMessage = '⚠️ Charging rate too low to overcome insulator leakage. Increase droplet flow rate above 8 drips/s.';
     }
   } else {
     const currentAbsV = Math.max(10, Math.abs(vDiff));
