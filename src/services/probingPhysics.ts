@@ -85,7 +85,11 @@ export function calculateProbeForceOnDroplet(
   const maxAcc = 20.0;
   const clampedF = Math.max(-maxAcc, Math.min(maxAcc, forceMagnitude * 100));
 
-  return [dirX * clampedF, dirY * clampedF, dirZ * clampedF];
+  // Electrostatic probe forces deflect streams horizontally (X & Z).
+  // Clamp vertical force (Y) so probe interaction never causes droplets to levitate upward against gravity.
+  const clampedFy = Math.min(0.5, dirY * clampedF);
+
+  return [dirX * clampedF, clampedFy, dirZ * clampedF];
 }
 
 export interface ProbeInteractionResult {

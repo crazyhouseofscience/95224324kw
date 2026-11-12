@@ -10,6 +10,7 @@ import {
   Play,
   RotateCcw,
   Layers,
+  Atom,
 } from 'lucide-react';
 import { SimulationState, SimulationParams } from '../types/simulation';
 
@@ -19,6 +20,7 @@ interface TelemetryBarProps {
   onShortCircuit: () => void;
   onOpenLabInvestigation: () => void;
   onOpenLightningModal: () => void;
+  onOpenMolecularModal: () => void;
   showHotspots: boolean;
   setShowHotspots: (show: boolean) => void;
   showGraphOverlay: boolean;
@@ -34,6 +36,7 @@ export const TelemetryBar: React.FC<TelemetryBarProps> = ({
   onShortCircuit,
   onOpenLabInvestigation,
   onOpenLightningModal,
+  onOpenMolecularModal,
   showHotspots,
   setShowHotspots,
   showGraphOverlay,
@@ -200,6 +203,17 @@ export const TelemetryBar: React.FC<TelemetryBarProps> = ({
 
       {/* Zone 3: Interactive View & Hints Selectors */}
       <div className="flex items-center gap-2 shrink-0">
+        {/* 3D Molecular Interactions Lab Modal Button */}
+        <button
+          type="button"
+          onClick={onOpenMolecularModal}
+          className="px-3 py-1.5 text-xs font-bold text-cyan-200 bg-gradient-to-r from-purple-600/30 to-cyan-600/30 hover:from-purple-600/50 hover:to-cyan-600/50 border border-purple-400/50 rounded-xl flex items-center gap-1.5 transition-all shadow-md cursor-pointer"
+          title="Open 3D Molecular & Sub-Atomic Interactions Lab (H2O dipoles, ions, electron sea, PVC, plasma, spark)"
+        >
+          <Atom size={14} className="text-cyan-300" />
+          <span className="hidden sm:inline">3D Molecular Lab</span>
+        </button>
+
         {/* Kelvin vs. Lightning Modal Trigger Button */}
         <button
           type="button"

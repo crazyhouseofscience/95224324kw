@@ -1,6 +1,7 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
+import { Line } from '@react-three/drei';
 import { SimulationParams, SimulationState, DropletData } from '../types/simulation';
 import { ProbeState } from '../types/probingLab';
 import { calculateProbeForceOnDroplet } from '../services/probingPhysics';
@@ -183,9 +184,6 @@ export const DropletParticles: React.FC<DropletParticlesProps> = ({
           const canRepulsion = (vAKv / distSq) * 0.0035 * deflectScale;
           d.vx += dxCan * canRepulsion * dt * 32;
           d.vz += dzCan * canRepulsion * dt * 32;
-          if (dyCan > 0) {
-            d.vy += dyCan * canRepulsion * dt * 10; // Upward levitation / spray deceleration at high kV
-          }
         }
 
         // Splash check on Can A water surface
@@ -225,9 +223,6 @@ export const DropletParticles: React.FC<DropletParticlesProps> = ({
           const canRepulsion = (vBKv / distSq) * 0.0035 * deflectScale;
           d.vx += dxCan * canRepulsion * dt * 32;
           d.vz += dzCan * canRepulsion * dt * 32;
-          if (dyCan > 0) {
-            d.vy += dyCan * canRepulsion * dt * 10;
-          }
         }
 
         // Splash check on Can B water surface
@@ -252,6 +247,9 @@ export const DropletParticles: React.FC<DropletParticlesProps> = ({
         d.vy += pfy * dt;
         d.vz += pfz * dt;
       }
+
+      // Guarantee droplets always fall downwards under gravity (no floating or levitating in mid-air)
+      d.vy = Math.min(-0.15, d.vy);
 
       // Update position
       d.x += d.vx * dt;
@@ -287,8 +285,122 @@ export const DropletParticles: React.FC<DropletParticlesProps> = ({
     }
   });
 
+  // Calculate real-time 3D trajectory drift path points for Nozzle A (Left)
+  const driftPointsLeft = useMemo(() => {
+    if (!params.showDropletDriftPaths) return [];
+    const points: [number, number, number][] = [];
+    const [wx, , wz] = getWindVector(params.windSpeed, params.windDirection);
+    const airDragScale = Math.min(1.5, Math.max(0.6, state.airDensity / 1.204));
+    const vDiffKv = (state.voltageA - state.voltageB) / 1000;
+    const deflectScale = params.enableDeflection ? 1.0 : 0.05;
+
+    let x = nozzleLeftPos[0];
+    let y = nozzleLeftPos[1] - 0.02;
+    let z = nozzleLeftPos[2];
+    let vx = 0;
+    let vy = -0.25;
+    let vz = 0;
+
+    const dtSim = 0.015;
+    for (let step = 0; step < 70; step++) {
+      points.push([x, y, z]);
+      vy -= 9.81 * dtSim * 0.65;
+      if (params.windSpeed > 0) {
+        vx += (wx - vx) * dtSim * 2.8 * airDragScale;
+        vz += (wz - vz) * dtSim * 2.8 * airDragScale;
+      }
+      vx += vDiffKv * 0.18 * deflectScale * dtSim;
+      x += vx * dtSim;
+      y += vy * dtSim;
+      z += vz * dtSim;
+      if (y < canLeftPos[1] - 0.08) break;
+    }
+    return points;
+  }, [
+    params.showDropletDriftPaths,
+    params.windSpeed,
+    params.windDirection,
+    params.enableDeflection,
+    state.airDensity,
+    state.voltageA,
+    state.voltageB,
+    nozzleLeftPos,
+    canLeftPos,
+  ]);
+
+  // Calculate real-time 3D trajectory drift path points for Nozzle B (Right)
+  const driftPointsRight = useMemo(() => {
+    if (!params.showDropletDriftPaths) return [];
+    const points: [number, number, number][] = [];
+    const [wx, , wz] = getWindVector(params.windSpeed, params.windDirection);
+    const airDragScale = Math.min(1.5, Math.max(0.6, state.airDensity / 1.204));
+    const vDiffKv = (state.voltageA - state.voltageB) / 1000;
+    const deflectScale = params.enableDeflection ? 1.0 : 0.05;
+
+    let x = nozzleRightPos[0];
+    let y = nozzleRightPos[1] - 0.02;
+    let z = nozzleRightPos[2];
+    let vx = 0;
+    let vy = -0.25;
+    let vz = 0;
+
+    const dtSim = 0.015;
+    for (let step = 0; step < 70; step++) {
+      points.push([x, y, z]);
+      vy -= 9.81 * dtSim * 0.65;
+      if (params.windSpeed > 0) {
+        vx += (wx - vx) * dtSim * 2.8 * airDragScale;
+        vz += (wz - vz) * dtSim * 2.8 * airDragScale;
+      }
+      vx -= vDiffKv * 0.18 * deflectScale * dtSim;
+      x += vx * dtSim;
+      y += vy * dtSim;
+      z += vz * dtSim;
+      if (y < canRightPos[1] - 0.08) break;
+    }
+    return points;
+  }, [
+    params.showDropletDriftPaths,
+    params.windSpeed,
+    params.windDirection,
+    params.enableDeflection,
+    state.airDensity,
+    state.voltageA,
+    state.voltageB,
+    nozzleRightPos,
+    canRightPos,
+  ]);
+
   return (
     <group>
+      {/* Real-time Visual Droplet Drift Path Trajectory Lines (showing wind & air density drift) */}
+      {params.showDropletDriftPaths && (
+        <group>
+          {driftPointsLeft.length > 1 && (
+            <Line
+              points={driftPointsLeft}
+              color="#38bdf8"
+              lineWidth={2.5}
+              dashed
+              dashScale={12}
+              dashSize={0.04}
+              gapSize={0.03}
+            />
+          )}
+          {driftPointsRight.length > 1 && (
+            <Line
+              points={driftPointsRight}
+              color="#f59e0b"
+              lineWidth={2.5}
+              dashed
+              dashScale={12}
+              dashSize={0.04}
+              gapSize={0.03}
+            />
+          )}
+        </group>
+      )}
+
       {/* Continuous Liquid Water Jet Column (always pure blue) */}
       {params.dropletRate >= 16 && (
         <group>

@@ -35,6 +35,7 @@ interface SidePanelsProps {
   setShowGraphOverlay: (show: boolean) => void;
   onOpenLabInvestigation: () => void;
   onOpenLightningModal: () => void;
+  onOpenMolecularModal?: () => void;
 }
 
 type LeftTab = 'flow' | 'charges' | 'guide';
@@ -52,6 +53,7 @@ export const SidePanels: React.FC<SidePanelsProps> = ({
   setShowGraphOverlay,
   onOpenLabInvestigation,
   onOpenLightningModal,
+  onOpenMolecularModal,
 }) => {
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
@@ -212,23 +214,44 @@ export const SidePanels: React.FC<SidePanelsProps> = ({
                   </button>
                 </div>
 
+                {/* Droplet Real-Time Drift Trajectory Path Line Toggle */}
+                <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 flex items-center justify-between">
+                  <div>
+                    <EducationalTooltip id="driftPaths">
+                      <span className="font-semibold text-slate-200 block">Visual Drift Trajectory</span>
+                    </EducationalTooltip>
+                    <span className="text-[10px] text-slate-400">3D wind & density path lines</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setParams((p) => ({ ...p, showDropletDriftPaths: !p.showDropletDriftPaths }))}
+                    className={`px-3 py-1 rounded-lg font-mono font-bold text-[11px] transition-all cursor-pointer ${
+                      params.showDropletDriftPaths
+                        ? 'bg-cyan-500 text-slate-950 font-extrabold shadow-sm'
+                        : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {params.showDropletDriftPaths ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+
                 {/* Sim Speed & Primary Controls */}
                 <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="font-semibold text-slate-200">Simulation Speed</span>
                     <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded-lg border border-slate-800">
-                      {([0.5, 1.0, 2.0] as const).map((spd) => (
+                      {([0.1, 0.5, 1.0, 2.0] as const).map((spd) => (
                         <button
                           key={spd}
                           type="button"
                           onClick={() => setParams((p) => ({ ...p, simSpeed: spd }))}
-                          className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all cursor-pointer ${
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-all cursor-pointer ${
                             params.simSpeed === spd
-                              ? 'bg-cyan-500 text-slate-950'
+                              ? 'bg-cyan-500 text-slate-950 font-extrabold'
                               : 'text-slate-400 hover:text-slate-200'
                           }`}
                         >
-                          {spd}x
+                          {spd === 0.1 ? '0.1x Slow' : `${spd}x`}
                         </button>
                       ))}
                     </div>

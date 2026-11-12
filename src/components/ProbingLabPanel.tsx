@@ -23,6 +23,7 @@ interface ProbingLabPanelProps {
   state: SimulationState;
   params: SimulationParams;
   onResetApparatus: () => void;
+  onOpenMolecularModal?: () => void;
 }
 
 export const ProbingLabPanel: React.FC<ProbingLabPanelProps> = ({
@@ -31,6 +32,7 @@ export const ProbingLabPanel: React.FC<ProbingLabPanelProps> = ({
   state,
   params,
   onResetApparatus,
+  onOpenMolecularModal,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<'materials' | 'properties' | 'experiments'>('materials');

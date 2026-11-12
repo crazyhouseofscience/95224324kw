@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Zap } from 'lucide-react';
 import { SimulationParams, SimulationState, DataPoint, SavedRun } from './types/simulation';
 import {
   stepPhysics,
@@ -20,6 +21,7 @@ import { VoltageGraph } from './components/VoltageGraph';
 import { SparkFlashBanner } from './components/SparkFlashBanner';
 import { ClassroomLabInvestigation } from './components/ClassroomLabInvestigation';
 import { LightningAnalogyModal } from './components/LightningAnalogyModal';
+import { MolecularLabModal } from './components/MolecularLabModal';
 import { ProbeState } from './types/probingLab';
 import { INITIAL_PROBE_STATE, stepProbeInteraction } from './services/probingPhysics';
 import { ProbingLabPanel } from './components/ProbingLabPanel';
@@ -45,6 +47,7 @@ const INITIAL_PARAMS: SimulationParams = {
   electronFlowSpeed: 1.0,
   chargeFlowMode: 'chemistry',
   chargeSignSize: 1.2,
+  showDropletDriftPaths: true,
 };
 
 const INITIAL_STATE: SimulationState = {
@@ -117,6 +120,7 @@ export default function App() {
   const [showGraphOverlay, setShowGraphOverlay] = useState(false);
   const [showLabInvestigation, setShowLabInvestigation] = useState(false);
   const [showLightningModal, setShowLightningModal] = useState(false);
+  const [showMolecularModal, setShowMolecularModal] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passcodeDigits, setPasscodeDigits] = useState(['', '', '', '', '', '', '', '']);
   const [passcodeError, setPasscodeError] = useState(false);
@@ -459,6 +463,7 @@ export default function App() {
             onShortCircuit={handleManualDischarge}
             onOpenLabInvestigation={() => setShowLabInvestigation(true)}
             onOpenLightningModal={() => setShowLightningModal(true)}
+            onOpenMolecularModal={() => setShowMolecularModal(true)}
             showHotspots={showHotspots}
             setShowHotspots={setShowHotspots}
             showGraphOverlay={showGraphOverlay}
@@ -514,6 +519,7 @@ export default function App() {
               setShowGraphOverlay={setShowGraphOverlay}
               onOpenLabInvestigation={() => setShowLabInvestigation(true)}
               onOpenLightningModal={() => setShowLightningModal(true)}
+              onOpenMolecularModal={() => setShowMolecularModal(true)}
             />
           ) : (
             <ProbingLabPanel
@@ -522,6 +528,7 @@ export default function App() {
               state={state}
               params={params}
               onResetApparatus={handleReset}
+              onOpenMolecularModal={() => setShowMolecularModal(true)}
             />
           )}
 
@@ -542,7 +549,13 @@ export default function App() {
             onClose={() => setShowLightningModal(false)}
           />
 
-          {/* 8. FOOTER DESIGN CREDIT */}
+          {/* 8. 3D MOLECULAR & SUB-ATOMIC INTERACTIONS LAB MODAL */}
+          <MolecularLabModal
+            isOpen={showMolecularModal}
+            onClose={() => setShowMolecularModal(false)}
+          />
+
+          {/* 9. FOOTER DESIGN CREDIT */}
           <div className="absolute bottom-1 left-3 z-20 pointer-events-none text-[10px] font-mono text-slate-500 bg-slate-950/60 px-2 py-0.5 rounded border border-slate-900">
             Designed by Keith Chapman 2026 v 2.0 using Google AI Studio
           </div>

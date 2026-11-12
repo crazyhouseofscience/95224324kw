@@ -27,6 +27,8 @@ export interface SimulationParams {
   electronFlowSpeed: number; // Animation speed multiplier for charge flow (0.5, 1.0, 2.0)
   chargeFlowMode: 'chemistry' | 'physics'; // 'chemistry' = Net + and - charge flow (both wires flow UP, + and - separate); 'physics' = mobile e- only
   chargeSignSize: number; // Scale multiplier for 3D charge symbols (0.6x - 2.2x, default 1.2x)
+  slowMotionOnSpark?: boolean; // Automatically enter 0.1x ultra slow motion during spark discharges
+  showDropletDriftPaths?: boolean; // Real-time 3D drift trajectory paths showing wind & density effects
 }
 
 export interface SparkEvent {
